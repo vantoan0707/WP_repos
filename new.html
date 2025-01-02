@@ -1,0 +1,174 @@
+<div class="wrap">
+    <h1 style="font-family: 'Silkscreen', cursive; font-size: 50px;">Henz Chatbot</h1>
+    <img src="<?php echo plugin_dir_url( __FILE__ ); ?>images/setting.png" alt="Chatbot Image" style="width: 150px; height: auto;">
+    <br><br>
+    <!-- Navigation Bar -->
+    <div class="nav-tab-wrapper">
+        <a href="#base-knowledge" class="nav-tab nav-tab-active">Base Knowledge</a>
+        <a href="#target" class="nav-tab">Target Pages</a>
+        <a href="#display" class="nav-tab">Display</a>
+        <a href="#options" class="nav-tab">Customization</a>
+    </div>
+
+    <form method="post" action="" id="settings-form" onsubmit="reloadAfterSubmit()">
+        <?php wp_nonce_field('simple_settings_update', 'simple_settings_nonce'); ?>
+
+        <!-- Target Section -->
+        <div class="tab-content" id="target" style="display:none;">
+            <h3>Select pages to display the chatbot</h3>
+            <br>
+            <!-- Table to list pages -->
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Page Title</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    // Fetch all published pages
+                    $pages = get_posts([
+                        'post_type'   => 'page',
+                        'post_status' => 'publish',
+                        'orderby'     => 'title',
+                        'order'       => 'ASC',
+                        'numberposts' => -1, // Get all pages
+                    ]);
+
+                    // Fetch selected pages from the database
+                    global $wpdb;
+                    $table_name = $wpdb->prefix . 'target_pages';
+                    $stored_pages = $wpdb->get_results("SELECT page_id FROM $table_name");
+
+                    // Convert stored pages into an array of IDs
+                    $stored_page_ids = array_map(function ($page) {
+                        return $page->page_id;
+                    }, $stored_pages);
+
+                    // Check if pages have been selected
+                    $selected_pages = isset($_POST['selected_pages']) ? $_POST['selected_pages'] : $stored_page_ids;
+
+                    // Loop through each page and create a row in the table
+                    foreach ($pages as $page) {
+                        $page_title = esc_html($page->post_title);
+                        $page_id = $page->ID;
+                        $checked = in_array($page_id, $selected_pages) ? 'checked' : ''; // Check if page is selected
+
+                        echo "<tr>";
+                        echo "<td>$page_title</td>";
+                        echo "<td><input type='checkbox' name='selected_pages[]' value='$page_id' $checked></td>";
+                        echo "</tr>";
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div>
+        
+        <?php
+        // Handle form submission
+        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['simple_settings_nonce']) && wp_verify_nonce($_POST['simple_settings_nonce'], 'simple_settings_update')) {
+            if (isset($_POST['selected_pages'])) {
+                global $wpdb;
+                $selected_pages = $_POST['selected_pages'];
+                $table_name = $wpdb->prefix . 'target_pages';
+
+                // Step 1: Remove unchecked pages from the database
+                $wpdb->query("DELETE FROM $table_name WHERE page_id NOT IN (" . implode(',', array_map('intval', $selected_pages)) . ")");
+
+                // Step 2: Insert or update selected pages
+                foreach ($selected_pages as $page_id) {
+                    // Get page details
+                    $page = get_post($page_id);
+                    $page_title = esc_html($page->post_title);
+                    $page_url = get_permalink($page_id);
+
+                    // Check if the page already exists in the database, if not, insert it
+                    $existing_page = $wpdb->get_var($wpdb->prepare("SELECT page_id FROM $table_name WHERE page_id = %d", $page_id));
+
+                    if (!$existing_page) {
+                        // Insert into the table if not already present
+                        $wpdb->insert(
+                            $table_name,
+                            [
+                                'page_id' => $page_id,
+                                'page_title' => $page_title,
+                                'page_url' => $page_url,
+                            ]
+                        );
+                    }
+
+                    // Step 3: Insert the shortcode into the page content
+                    $shortcode = '[mini_chatbot]'; // Replace with your actual shortcode
+                    $content = $page->post_content;
+
+                    // Check if the shortcode already exists in the content to avoid duplicate
+                    if (strpos($content, $shortcode) === false) {
+                        $content .= "\n" . $shortcode; // Append the shortcode to the content
+
+                        // Update the page content
+                        wp_update_post([
+                            'ID' => $page_id,
+                            'post_content' => $content,
+                        ]);
+                    }
+                }
+
+                // Step 4: Remove the shortcode from unchecked pages
+                $unchecked_pages = array_diff($stored_page_ids, $selected_pages);
+                foreach ($unchecked_pages as $page_id) {
+                    $page = get_post($page_id);
+                    $content = $page->post_content;
+
+                    // Remove the shortcode if it exists
+                    if (strpos($content, '[mini_chatbot]') !== false) {
+                        // Remove the shortcode from the content
+                        $content = str_replace('[mini_chatbot]', '', $content);
+
+                        // Update the page content
+                        wp_update_post([ 
+                            'ID' => $page_id, 
+                            'post_content' => $content, 
+                        ]);
+                    }
+
+                    // Remove from the database if the page is unchecked
+                    $wpdb->delete($table_name, ['page_id' => $page_id]);
+                }
+            } else {
+                // If no pages are selected, remove all pages from the database
+                global $wpdb;
+                $table_name = $wpdb->prefix . 'target_pages';
+                $wpdb->query("DELETE FROM $table_name");
+
+                // Also remove the shortcode from all pages
+                $pages = get_posts([
+                    'post_type'   => 'page',
+                    'post_status' => 'publish',
+                    'orderby'     => 'title',
+                    'order'       => 'ASC',
+                    'numberposts' => -1, // Get all pages
+                ]);
+
+                foreach ($pages as $page) {
+                    $content = $page->post_content;
+
+                    // Remove the shortcode if it exists
+                    if (strpos($content, '[mini_chatbot]') !== false) {
+                        // Remove the shortcode from the content
+                        $content = str_replace('[mini_chatbot]', '', $content);
+
+                        // Update the page content
+                        wp_update_post([
+                            'ID' => $page->ID,
+                            'post_content' => $content,
+                        ]);
+                    }
+                }
+            }
+        }
+        
+        ?>
+
+        <?php submit_button('Save Settings');?>
+    </form>
