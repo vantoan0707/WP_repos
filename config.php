@@ -113,7 +113,7 @@ function generate_chat_response( $last_prompt, $conversation_history ) {
 
     // OpenAI API URL and key
     $api_url = 'https://api.openai.com/v1/chat/completions';
-    $api_key = 'sk-WhiJxN7MPVcU1MvnCYVYb5zi8voEFIC0_KBna1kmy3T3BlbkFJzfZ20L3rQV_xJuUJ9gO3qlJK7pZPL6sg6QINDDlD4A'; // Replace with your actual API key
+    $api_key = 'sk-...'; // Replace with your actual API key
     
     // Headers for the OpenAI API
     $headers = [
